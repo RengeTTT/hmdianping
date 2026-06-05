@@ -9,9 +9,11 @@ import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RedisIWorker;
+import com.hmdp.utils.RedisLockManager;
 import com.hmdp.utils.UserHolder;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +34,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private ISeckillVoucherService seckillVoucherService;
     @Autowired
     private RedisIWorker redisIWorker;
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
 
     /**
      * @param voucherId
@@ -57,11 +61,15 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             return Result.fail("库存不足");
         }
         Long userId = UserHolder.getUser().getId();
-        synchronized (userId.toString().intern()) {
-            // 获取代理对象
-            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
-            return proxy.createSeckillVoucher(voucherId);
+        // 使用分布式锁解决超买问题
+        RedisLockManager redisLockManager = new RedisLockManager("order:" + userId, stringRedisTemplate);
+        boolean isLock = redisLockManager.tryLock(10L);
+        if(!isLock) {
+            return Result.fail("不允许重复下单");
         }
+        // 获取代理对象
+        IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+        return proxy.createSeckillVoucher(voucherId);
     }
 
     @Transactional
