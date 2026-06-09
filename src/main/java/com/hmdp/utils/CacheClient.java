@@ -5,15 +5,13 @@ import cn.hutool.core.util.BooleanUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
-import com.hmdp.entity.Shop;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
-import java.util.Random;
+
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -110,7 +108,7 @@ public class CacheClient {
         return shop;
     }
 
-    // 利用逻辑过期解决缓存穿透问题
+    // 利用逻辑过期解决缓存击穿问题
     public <T, ID> T queryWithLogicalExpire(String keyPrefix
             , Class<T> clazz, ID id, Function<ID, T> dbFallBack, Long expire, TimeUnit timeUnit) {
         if (id == null) {
