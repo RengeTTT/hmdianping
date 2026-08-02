@@ -11,7 +11,7 @@ import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RedisIWorker;
 import com.hmdp.utils.UserHolder;
 import jakarta.annotation.PostConstruct;
-import org.redisson.api.RedissonClient;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
@@ -39,6 +39,7 @@ import static org.springframework.data.redis.connection.stream.ReadOffset.lastCo
  * @since 2021-12-22
  */
 @Service
+@Slf4j
 public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {
 
     @Autowired
@@ -47,18 +48,16 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private RedisIWorker redisIWorker;
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
-    @Autowired
-    private RedissonClient redissonClient;
 
     private static final DefaultRedisScript<Long> redisScript;
 
     static {
         redisScript = new DefaultRedisScript<>();
-        redisScript.setLocation(new ClassPathResource("seckill.lua"));
+        redisScript.setLocation(new ClassPathResource("/lua/seckill.lua"));
         redisScript.setResultType(Long.class);
     }
 
-    private final IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+    private IVoucherOrderService proxy;
 
     private static final ExecutorService SECKILL_EXECUTOR_SERVICE = Executors.newSingleThreadExecutor();
 
@@ -82,7 +81,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                     for (MapRecord<String, Object, Object> record : recordList) {
                         Map<Object, Object> value = record.getValue();
                         VoucherOrder voucherOrder = BeanUtil.fillBeanWithMap(value, new VoucherOrder(), true);
-                        handleVoucherOrderAsync(voucherOrder);
+                        proxy.handleVoucherOrderAsync(voucherOrder);
                         stringRedisTemplate.opsForStream().acknowledge(orderQueueName, "g1", record.getId());
                     }
                 } catch (Exception e) {
@@ -111,11 +110,12 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                 for (MapRecord<String, Object, Object> record : recordList) {
                     Map<Object, Object> value = record.getValue();
                     VoucherOrder voucherOrder = BeanUtil.fillBeanWithMap(value, new VoucherOrder(), true);
-                    handleVoucherOrderAsync(voucherOrder);
+                    proxy.handleVoucherOrderAsync(voucherOrder);
                     stringRedisTemplate.opsForStream().acknowledge(orderQueueName, "g1", record.getId());
+
                 }
             } catch (Exception e) {
-                log.error("异常错误");
+                log.error(e.getMessage());
                 // 继续外层循环继续处理
                 try {
                     Thread.sleep(10);
@@ -128,7 +128,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     // 异步下单操作
     @Transactional
-    protected void handleVoucherOrderAsync(VoucherOrder voucherOrder) {
+    public void handleVoucherOrderAsync(VoucherOrder voucherOrder) {
         Long userId = voucherOrder.getUserId();
         Long voucherId = voucherOrder.getVoucherId();
         if (userId == null || voucherId == null) {
@@ -140,7 +140,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             return;
         }
         // 使用CAS锁进防止库存超卖
-        boolean success = proxy.update()
+        boolean success = seckillVoucherService.update()
                 .setSql("stock = stock - 1")
                 .gt("stock", 0)
                 .eq("voucher_id", voucherId)
@@ -149,7 +149,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             // 库存不足
             return;
         }
-        // 下单成功扣减库存
+        // 下单成功
+        log.info("下单结果{}",voucherOrder);
         proxy.save(voucherOrder);
         return;
     }
@@ -164,6 +165,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         long id = redisIWorker.nextId("order");
         long res = stringRedisTemplate.execute(redisScript,
                 Collections.EMPTY_LIST, voucherId.toString(), String.valueOf(userId), String.valueOf(id));
+        log.info("返回结果;{}",res);
         if (res == 1) {
             return Result.fail("库存不足");
         }
@@ -173,7 +175,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         if (res != 0) {
             return Result.fail("未知错误");
         }
-
+        proxy = (IVoucherOrderService) AopContext.currentProxy();
         return Result.ok(voucherId);
     }
 
