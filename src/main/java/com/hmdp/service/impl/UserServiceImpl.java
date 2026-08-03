@@ -13,20 +13,23 @@ import com.hmdp.service.IUserService;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RegexUtils;
 import com.hmdp.utils.SystemConstants;
-import jakarta.annotation.Resource;
-import jakarta.servlet.http.Cookie;
+import com.hmdp.utils.UserHolder;
+
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpSession;
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -104,6 +107,53 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     }
 
+    @Override
+    public Result signUp() {
+        // 获取当前登录用户
+        Long userId = UserHolder.getUser().getId();
+        // 获取当前年月
+        LocalDate now = LocalDate.now();
+        String keySuffix = now.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        // 拼接当前key
+        String key = RedisConstants.USER_SIGN_KEY + userId + keySuffix;
+        // 获取日期
+        int dayMonth = now.getDayOfMonth();
+        // 使用bitMap存储
+        stringRedisTemplate.opsForValue().setBit(key, dayMonth - 1, true);
+        return Result.ok();
+    }
+
+    @Override
+    public Result signUpCount() {
+        Long userId = UserHolder.getUser().getId();
+        LocalDate now = LocalDate.now();
+        String keySuffix = now.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        String key = RedisConstants.USER_SIGN_KEY + userId + keySuffix;
+
+        int dayMonth = now.getDayOfMonth();
+        List<Long> res = stringRedisTemplate.opsForValue().bitField(key,
+                BitFieldSubCommands.create().
+                        get(BitFieldSubCommands.BitFieldType.unsigned(dayMonth)).valueAt(0));
+        if (res == null || res.isEmpty()) {
+            return Result.ok(0);
+        }
+
+        Long num = res.getFirst();
+        if (num == 0) {
+            return Result.ok(0);
+        }
+        int count = 0;
+        while (num > 0) {
+            if ((num & 1) == 1) {
+                count++;
+            } else {
+                break;
+            }
+            num >>= 1;
+        }
+        return Result.ok(count);
+    }
+
     private User createUserWithPhone(LoginFormDTO loginForm) {
 
         User user = User.builder()
@@ -115,4 +165,5 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         save(user);
         return user;
     }
+
 }

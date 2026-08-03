@@ -9,7 +9,7 @@ import com.hmdp.entity.User;
 import com.hmdp.entity.UserInfo;
 import com.hmdp.service.IUserInfoService;
 import com.hmdp.service.IUserService;
-import com.hmdp.utils.RegexUtils;
+
 import com.hmdp.utils.UserHolder;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.*;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpSession;
 
-import java.net.http.HttpRequest;
+
 
 /**
  * <p>
@@ -96,5 +96,15 @@ public class UserController {
         UserDTO userDTO = BeanUtil.copyProperties(user, UserDTO.class);
         // 返回
         return Result.ok(userDTO);
+    }
+    @PostMapping("/user/sign")
+    public Result signUp(){
+        return userService.signUp();
+    }
+
+    @GetMapping("/user/sign/count")
+    public Result signUpCount(){
+        // 获取本月到今天为止的连续签到日期
+        return userService.signUpCount();
     }
 }
